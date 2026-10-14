@@ -145,10 +145,14 @@ export default function SupplierDashboard() {
     }
   }, [])
 
+  const userRef = useRef(null)
+  userRef.current = user
+
   // Load incoming orders
   const loadIncomingOrders = useCallback(
-    async (page = 0, append = false, userId = user?.id) => {
-      if (!userId) return
+    async (page = 0, append = false, explicitUserId = null) => {
+      const uid = explicitUserId || userRef.current?.id
+      if (!uid) return
       setOrdersLoading(true)
       setOrdersError('')
 
@@ -173,7 +177,7 @@ export default function SupplierDashboard() {
             products ( name, unit )
           )
         `)
-        .eq('supplier_id', userId)
+        .eq('supplier_id', uid)
         .order('created_at', { ascending: false })
         .range(from, to)
 
@@ -224,12 +228,14 @@ export default function SupplierDashboard() {
       setOrdersPage(page)
       setOrdersLoading(false)
     },
-    [user]
+    []
   )
 
   useEffect(() => {
+    let cancelled = false
     async function loadUserAndProfile() {
       const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (cancelled) return
       if (!authUser) {
         navigate('/login')
         return
@@ -240,8 +246,9 @@ export default function SupplierDashboard() {
         .from('profiles')
         .select('*')
         .eq('id', authUser.id)
-        .single()
+        .maybeSingle()
 
+      if (cancelled) return
       if (profileData) {
         setProfile(profileData)
       }
@@ -251,14 +258,17 @@ export default function SupplierDashboard() {
     }
 
     loadUserAndProfile()
+    return () => {
+      cancelled = true
+    }
   }, [navigate, loadIncomingOrders])
 
-  // Reload orders when tab or filter changes
+  // Reload orders when tab changes
   useEffect(() => {
-    if (activeTab === 'orders' && user) {
-      loadIncomingOrders(0, false)
+    if (activeTab === 'orders' && user?.id) {
+      loadIncomingOrders(0, false, user.id)
     }
-  }, [activeTab, user, loadIncomingOrders])
+  }, [activeTab, user?.id, loadIncomingOrders])
 
   async function loadProducts(userId) {
     setProductsLoading(true)
@@ -1593,14 +1603,6 @@ export default function SupplierDashboard() {
           </section>
         )}
       </main>
-
-      {/* Confirm Action Modal Overlay */}
-      {confirmAction && !['pending', 'accepted', 'ready'].some(
-        (s) => filteredOrders.find((o) => o.id === confirmAction.orderId && o.status === s)
-      ) && (
-        // Close stale confirm if order status changed
-        <>{setConfirmAction(null)}</>
-      )}
     </div>
   )
 }
